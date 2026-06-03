@@ -1383,7 +1383,8 @@ async function registerSW(){
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 async function boot(){
-  const noSupabase=SUPABASE_URL.includes("YOUR_PROJECT_ID")||SUPABASE_ANON_KEY.includes("YOUR_ANON_KEY");
+  // const noSupabase=SUPABASE_URL.includes("YOUR_PROJECT_ID")||SUPABASE_ANON_KEY.includes("YOUR_ANON_KEY");
+  const noSupabase=true;
 
   if(noSupabase){
     // No Supabase configured — run fully locally, no auth required
