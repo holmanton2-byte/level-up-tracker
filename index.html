@@ -392,7 +392,7 @@ function weekId(k){
   const thu=new Date(d); thu.setDate(d.getDate()-day+3);
   const yr=thu.getFullYear(),jan4=new Date(yr,0,4);
   const w1=new Date(jan4); w1.setDate(jan4.getDate()-((jan4.getDay()+6)%7));
-  return `${yr}-W${String(Math.round((thu-w1)/604800000)+1).padStart(2,"00")}`;
+  return `${yr}-W${String(Math.round((thu-w1)/604800000)+1).padStart(2,"0")}`;
 }
 function weekDays(k){
   const d=new Date(k+"T12:00:00"),mon=new Date(d);
@@ -558,15 +558,22 @@ function saveLocal(){try{localStorage.setItem("levelup_v1",JSON.stringify(STATE)
 function loadLocal(){try{const d=localStorage.getItem("levelup_v1");if(d){const p=JSON.parse(d);STATE.habits=p.habits||DEFAULT_HABITS;STATE.logs=p.logs||{};STATE.journal=p.journal||{};}}catch(e){}}
 
 // ── Rendering helpers ────────────────────────────────────────────────────────
+// DOM property names that must be set as .prop, not setAttribute
+const DOM_PROPS=new Set(["value","checked","selected","disabled","readOnly","innerHTML","textContent"]);
 function el(tag,attrs={},children=[]){
   const e=document.createElement(tag);
   for(const[k,v]of Object.entries(attrs)){
     if(k==="style"&&typeof v==="object"){Object.assign(e.style,v);}
     else if(k.startsWith("on")&&typeof v==="function"){e.addEventListener(k.slice(2).toLowerCase(),v);}
     else if(k==="className"){e.className=v;}
+    else if(DOM_PROPS.has(k)){e[k]=v;}
     else{e.setAttribute(k,v);}
   }
-  for(const c of children){if(typeof c==="string")e.appendChild(document.createTextNode(c));else if(c)e.appendChild(c);}
+  for(const c of children){
+    if(c==null||c===false) continue;
+    if(typeof c==="string"||typeof c==="number") e.appendChild(document.createTextNode(c));
+    else if(c instanceof Node) e.appendChild(c);
+  }
   return e;
 }
 function clearEl(id){const e=document.getElementById(id);if(e)e.innerHTML="";}
@@ -776,7 +783,7 @@ function renderToday(){
     const banner=el("div",{className:"past-banner"});
     const left=el("div");
     left.innerHTML=`<span style="font-size:12px;color:#f59e0b;font-weight:600">📅 Editing past day</span> <span style="font-size:12px;color:#854d0e">${fmtDate(selectedDate)}</span>`;
-    const back=el("button",{className:"past-banner-back",onClick:()=>{selectedDate=today;renderAll(false);}}),["Back to today"]);
+    const back=el("button",{className:"past-banner-back",onClick:()=>{selectedDate=today;renderAll(false);}},["Back to today"]);
     banner.append(left,back);
     container.appendChild(banner);
   }
@@ -1376,26 +1383,34 @@ async function registerSW(){
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 async function boot(){
-  // Check for Supabase auth callback (magic link lands here)
-  const{data:{session}}=await sb.auth.getSession();
-  if(session) currentUser=session.user;
-  else{
-    // Listen for auth state change (magic link callback)
-    sb.auth.onAuthStateChange((_,sess)=>{
-      if(sess){currentUser=sess.user;showApp();}
-    });
-  }
+  const noSupabase=SUPABASE_URL.includes("YOUR_PROJECT_ID")||SUPABASE_ANON_KEY.includes("YOUR_ANON_KEY");
 
-  if(SUPABASE_URL.includes("YOUR_PROJECT_ID")){
-    // No Supabase configured — skip auth, run locally
-    currentUser=null;
+  if(noSupabase){
+    // No Supabase configured — run fully locally, no auth required
     loadLocal();
     showApp();
-  } else if(currentUser){
-    await loadFromSupabase();
+    registerSW();
+    return;
+  }
+
+  // Supabase is configured — try auth
+  try{
+    const{data:{session}}=await sb.auth.getSession();
+    if(session){
+      currentUser=session.user;
+      await loadFromSupabase();
+      showApp();
+    } else {
+      // Watch for magic link callback
+      sb.auth.onAuthStateChange(async(_,sess)=>{
+        if(sess){currentUser=sess.user;await loadFromSupabase();showApp();}
+      });
+      showAuthScreen();
+    }
+  }catch(e){
+    console.warn("Supabase auth failed, falling back to local",e);
+    loadLocal();
     showApp();
-  } else {
-    showAuthScreen();
   }
   registerSW();
 }
