@@ -378,7 +378,6 @@ let currentUser = null;
 let currentView = "today";
 let selectedDate = todayKey();
 let syncing = false;
-let flashTimer = null;
 let modalHabit = null; // habit being edited, or null for new
 let numModalHabit = null;
 
@@ -763,14 +762,13 @@ function logNumeric(hid,val){
 }
 function showXPPop(hid,xp){
   if(!xp) return;
-  clearTimeout(flashTimer);
   const cards=document.querySelectorAll("[data-habit-id='"+hid+"']");
   cards.forEach(c=>{
     const p=c.querySelector(".xp-pop"); if(p)p.remove();
     const pop=el("div",{className:"xp-pop",style:{color:STATE.habits.find(h=>h.id===hid)?.color||"#f97316"}},[`+${xp} XP`]);
     c.style.position="relative";
     c.appendChild(pop);
-    flashTimer=setTimeout(()=>pop.remove(),900);
+    setTimeout(()=>pop.remove(),900);
   });
 }
 
@@ -1096,8 +1094,8 @@ function openEditModal(h){ modalHabit=h; showHabitModal(); }
 function showHabitModal(){
   closeModal();
   const isEdit=!!modalHabit;
-  let form=isEdit?{...modalHabit,subtasks:modalHabit.subtasks?[...modalHabit.subtasks]:[]}
-    :{name:"",icon:"⭐",mode:"boolean",type:"positive",xp:10,color:"#22c55e",goal:10000,unit:"steps",subtasks:[],schedule:[],tag:null};
+  let form=isEdit?{...modalHabit,subtasks:modalHabit.subtasks?modalHabit.subtasks.map(s=>({...s})):[]}
+    :{name:"",icon:"⭐",mode:"boolean",type:"positive",xp:10,color:"#22c55e",goal:0,unit:"",subtasks:[],schedule:[],tag:null};
 
   const backdrop=el("div",{className:"modal-backdrop",id:"modal-backdrop",onClick:closeModal});
   const box=el("div",{className:"modal-box",onClick:e=>e.stopPropagation()});
@@ -1163,7 +1161,7 @@ function showHabitModal(){
     if(form.mode==="numeric"){
       dynSection.appendChild(el("label",{className:"form-label"},["Daily Goal"]));
       const gi=el("input",{type:"number",className:"form-input",placeholder:"e.g. 10000",value:form.goal||""});
-      gi.addEventListener("input",()=>form.goal=parseInt(gi.value)||0);
+      gi.addEventListener("input",()=>form.goal=parseFloat(gi.value)||0);
       dynSection.appendChild(gi);
       dynSection.appendChild(el("label",{className:"form-label"},["Unit"]));
       const ui=el("input",{className:"form-input",placeholder:"steps",value:form.unit||""});
@@ -1371,20 +1369,26 @@ function renderAll(full=true){
 async function registerSW(){
   if(!("serviceWorker" in navigator)) return;
   try{
-    const reg=await navigator.serviceWorker.register("/sw.js");
-    // Reschedule reminder if one was saved
-    const saved=localStorage.getItem("reminder_time");
-    if(saved&&Notification.permission==="granted"){
-      const[h,m]=saved.split(":").map(Number);
-      navigator.serviceWorker.ready.then(r=>r.active?.postMessage({type:"SCHEDULE_REMINDER",hour:h,minute:m}));
-    }
+    await navigator.serviceWorker.register("/sw.js");
+    const rearm=()=>{
+      const saved=localStorage.getItem("reminder_time");
+      if(saved&&Notification.permission==="granted"){
+        const[h,m]=saved.split(":").map(Number);
+        // Re-send on every call so a killed SW gets a fresh timeout
+        navigator.serviceWorker.ready.then(r=>r.active?.postMessage({type:"SCHEDULE_REMINDER",hour:h,minute:m}));
+      }
+    };
+    rearm();
+    // Re-arm whenever the page becomes visible again (SW may have been killed while hidden)
+    document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") rearm(); });
+    // Re-arm if a new SW takes control after an update
+    navigator.serviceWorker.addEventListener("controllerchange", rearm);
   }catch(e){console.warn("SW registration failed",e);}
 }
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 async function boot(){
-  // const noSupabase=SUPABASE_URL.includes("YOUR_PROJECT_ID")||SUPABASE_ANON_KEY.includes("YOUR_ANON_KEY");
-  const noSupabase=true;
+  const noSupabase=SUPABASE_URL.includes("YOUR_PROJECT_ID")||SUPABASE_ANON_KEY.includes("YOUR_ANON_KEY");
 
   if(noSupabase){
     // No Supabase configured — run fully locally, no auth required
